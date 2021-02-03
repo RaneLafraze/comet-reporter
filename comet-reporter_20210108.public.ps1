@@ -39,6 +39,7 @@ $SyncroIssue          = ""  # Syncro ticket issue
 $SyncroSubjectFailure = ""  # Syncro ticket subject on failure
 $SyncroSubjectSuccess = ""  # Syncro ticket subject on success
 $WorkDir              = ""  # Work directory
+$GracePeriod          = 3   # Number of days a backup can miss its job
 
 
 ###
@@ -284,6 +285,11 @@ while(1) {
                 Result("done")
             } elseif($job.Status -ge 7000 -and $job.Status -le 7999) {
 
+                # Skip ticket creation if grace period hasn’t been passed yet
+                $GracePeriodUnix = $($comet_userprofile.Sources.$($job.SourceGUID).Statistics.LastBackupJob.EndTime) + ($GracePeriod * 86400)
+                if($GracePeriodUnix -ge $job.StartTime) {
+                    continue
+                }
 
                 ###
                 ### Create Syncro ticket
