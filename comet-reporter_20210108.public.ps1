@@ -1,4 +1,5 @@
-﻿# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 # 
 # comet-reporter.ps1 - Operational integration (reporting) for Comet Backup and SyncroMSP
 #
@@ -340,7 +341,7 @@ while(1) {
                 ### top of ticket comments while viewing in reverse chronological order
                 ###
                 Message("Add Syncro ticket summary comment")
-                if($(job.Status) -le 7009) {
+                if(($job.Status) -le 7009) {
 
 
                         ###
