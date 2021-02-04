@@ -29,18 +29,18 @@ $VER = "20210108"
 ###
 ### Definitions
 ###
-$BrandedName          = ""  # Name to use if service is branded
-$CometPWD             = ""  # Comet password for API access
-$CometURL             = ""  # Comet server URL
-$CometUser            = ""  # Comet user for API access
-$SleepTimer           = 180 # Duration to sleep between cycles
-$SyncroAPIKey         = ""  # Syncro API key
-$SyncroIssue          = ""  # Syncro ticket issue
-$SyncroSubjectFailure = ""  # Syncro ticket subject on failure
-$SyncroSubjectSuccess = ""  # Syncro ticket subject on success
-$WorkDir              = ""  # Work directory
-$GracePeriod          = 3   # Number of days a backup can miss its job
-
+$BrandedName          = ""     # Name to use if service is branded
+$CometPWD             = ""     # Comet password for API access
+$CometURL             = ""     # Comet server URL
+$CometUser            = ""     # Comet user for API access
+$SleepTimer           = 180    # Duration to sleep between cycles
+$SyncroAPIKey         = ""     # Syncro API key
+$SyncroIssue          = ""     # Syncro ticket issue
+$SyncroSubjectFailure = ""     # Syncro ticket subject on failure
+$SyncroSubjectSuccess = ""     # Syncro ticket subject on success
+$WorkDir              = ""     # Work directory
+$GracePeriod          = 3      # Number of days a backup can miss its job
+$ReportAtTime         = "1700" # 24-hour time to generate ticket (ex. 4:30pm="1630")
 
 ###
 ### Constants
@@ -250,6 +250,28 @@ while(1) {
 
 
             ###
+            ### Skip all but one backup per day for periodic backups
+            ###
+            $ReportAtTime = [int]$ReportAtTime
+            $job_info_object = $($comet_userprofile.Sources.$($job.SourceGUID))
+            foreach($schedule in $($comet_userprofile.BackupRules)) {
+                # Make sure the schedule corresponds to the backup and vault
+               if($($job.SourceGUID) -eq $($schedule.Source) -And $($job.DestinationGUID) -eq $($schedule.Destination) -And $($schedule.Schedules[0].FrequencyType -eq 8015)) {
+                    # Only skip if it's outside of time frame
+                    $current_time = [int](Get-Date -Format "HHmm")
+                    $time_window = $ReportAtTime + ($SleepTimer / 60)
+                    if(($time_window - ([Math]::Floor($time_window / 100)) * 100) -ge 60) {
+                        $time_window = $time_window + 40 # Advances to next hour
+                    }
+
+                    if($current_time -lt $ReportAtTime -Or $current_time -ge $time_window) {
+                        continue
+                    }
+                }
+            }
+
+
+            ###
             ### Use backup job details Status to determine success / failure of job and create Syncro ticket, set status
             ### and and backup job log entries
             ###
@@ -288,7 +310,7 @@ while(1) {
                 ###
                 ### Skip ticket creation if grace period hasn’t been passed yet
                 ###
-                $graceperiod_unix = $($comet_userprofile.Sources.$($job.SourceGUID).Statistics.LastBackupJob.EndTime) + ($GracePeriod * 86400)
+                $graceperiod_unix = $($job_info_object.Statistics.LastBackupJob.EndTime) + ($GracePeriod * 86400)
                 if($graceperiod_unix -ge $job.StartTime) {
                     continue
                 }
