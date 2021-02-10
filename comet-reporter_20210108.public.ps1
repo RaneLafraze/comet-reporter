@@ -226,12 +226,42 @@ while(1) {
         }
     }
 
+    ###
+    ### Add the latest periodic backups to comet_jobs if the script is running near the report time
+    ###
+    $ReportAtTime = [int]$ReportAtTime
+    $current_time = [int](Get-Date -Format "HHmm")
+    $time_window = $ReportAtTime + ($SleepTimer / 60)
+    if(($time_window - ([Math]::Floor($time_window / 100)) * 100) -ge 60) {
+        $time_window = $time_window + 40 # Advances to next hour (ex. time=1364 + 40 = 1404 (14:04 is a valid time))
+    }
+
+    $periodicjob_list = [System.Collections.ArrayList]@()
+    if($current_time -ge $ReportAtTime -And $current_time -lt $time_window) {
+        Message("Compile list of periodic backup jobs")
+
+        # It's in the window, so get a list of users and loop through to find the latest periodic
+        $user_list = $(Invoke-WebRequest -URI "$($CometURL)/api/v1/admin/list-users-full" -Method Post -Body @{Username="$($CometUser)"; AuthType="Password"; Password="$($CometPWD)"}).Content | ConvertFrom-Json
+
+        foreach($user_single in $user_list.PSObject.Properties) { # User loop
+            foreach($schedule in $user_single.Value.BackupRules.PSObject.Properties) { # Schedule loop
+
+                # If it's a periodic backup, get all of the jobs for it (8015 is a periodic backup)
+                if($schedule.Value.Schedules[0].FrequencyType -eq 8015) {
+                    $periodic_job = $user_single.Value.Sources.$($schedule.Value.Source).Statistics.LastBackupJob.GUID
+                    $periodicjob_list.Add($periodic_job)
+                }
+            }
+        }
+        Result("done")
+    }
+    
 
     ###
     ### Second pass through the backup jobs; on this pass, retrieve job details and create Syncro ticket
     ###
     foreach($job in $comet_jobs) {
-        if($job.EndTime -gt $reporter.latestjobendtime) {
+        if($job.EndTime -gt $reporter.latestjobendtime -Or $periodicjob_list.Contains($job.GUID)) {
             
 
             ###
@@ -251,24 +281,22 @@ while(1) {
 
 
             ###
-            ### Skip all but one backup per day for periodic backups
+            ### Treat periodic backups differently to avoid over-reporting
             ###
-            $ReportAtTime = [int]$ReportAtTime
-            $job_info_object = $($comet_userprofile.Sources.$($job.SourceGUID))
-            foreach($schedule in $($comet_userprofile.BackupRules)) {
-                # Make sure the schedule corresponds to the backup and vault
-               if($($job.SourceGUID) -eq $($schedule.Source) -And $($job.DestinationGUID) -eq $($schedule.Destination) -And $($schedule.Schedules[0].FrequencyType -eq 8015)) {
-                    # Only skip if it's outside of time frame
-                    $current_time = [int](Get-Date -Format "HHmm")
-                    $time_window = $ReportAtTime + ($SleepTimer / 60)
-                    if(($time_window - ([Math]::Floor($time_window / 100)) * 100) -ge 60) {
-                        $time_window = $time_window + 40 # Advances to next hour
-                    }
+            $should_skip = $false
+            foreach($schedule in $comet_userprofile.BackupRules.PSObject.Properties) {
 
-                    if($current_time -lt $ReportAtTime -Or $current_time -ge $time_window) {
-                        continue
+                # If it matches the given job's Source (Backup) and Destination (Storage Vault), process it
+                if($schedule.Value.Source -eq $job.SourceGUID -And $schedule.Value.Destination -eq $job.DestinationGUID) {
+                    # If the schedule is periodic and isn't in $periodicjob_list, skip it
+                    if($schedule.Value.Schedules[0].FrequencyType -eq 8015 -And !$periodicjob_list.Contains($job.GUID)) {
+                        $should_skip = $true
                     }
                 }
+            }
+            # Have to do the check outside of inner foreach loop
+            if($should_skip) {
+                continue
             }
 
 
